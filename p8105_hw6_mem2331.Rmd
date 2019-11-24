@@ -9,4 +9,86 @@ output: github_document
 knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
+library(modelr)
+library(broom)
+
 ```
+
+# Problem 1
+
+Load the data:
+
+```{r}
+
+birth <- read_csv(file = "data/birthweight.csv") %>% 
+  mutate(babysex = recode_factor(babysex, 
+                                 '1' = "male", 
+                                 '2' = "female"),
+         frace = recode_factor(frace,
+                               '1' = "white",
+                               '2' = "black",
+                               '3' = "asian",
+                               '4' = "puerto_rican",
+                               '8' = "other"),
+         malform = recode_factor(malform, 
+                                 '0' = "absent", 
+                                 '1' = "present"),
+         mrace = recode_factor(mrace, 
+                               '1' = "white",
+                               '2' = "black",
+                               '3' = "asian",
+                               '4' = "puerto_rican",
+                               '8' = "other"))
+
+```
+
+Checked for missing data and appropriate variable types using `skimr::skim(birth)`, which showed no missing data and numeric variables were recoded to factors where appropriate. The dataset contains `r nrow(birth)` observations of `r ncol(birth)` variables, which describe characteristics of the mother pre and postpartum, the father, and the newborn baby.
+
+## Generating a linear regression model
+
+```{r}
+
+molly_model = lm(data = birth, bwt ~ smoken + ppbmi + momage + fincome)
+
+
+
+```
+
+Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.
+
+- smoking --> small, obese - diabetes --> large baby
+- Need to account for malformations -- maybe exclude that data.
+- How to account for gestational age?
+- does mother's height or bmi have an effect?
+- parity could have an effect - smaller 1st babies versus later?
+- how to account for previous number of low birth weight or small for gestational age babies?
+
+## Comparison of model to provided models
+
+Create models to predict birthweight:
+1. `basic_baby` - length at birth and GA as predictors
+2. `all_baby` - head circumference, length, sex, and all interactions
+
+```{r}
+
+basic_baby = lm(data = birth, bwt ~ blength + gaweeks)
+
+basic_baby %>% 
+  tidy() %>% 
+  knitr::kable(digits = 3)
+
+```
+
+Both baby length and gestational age have a significant rela on baby weight that is significant. 
+
+```{r}
+all_baby = lm(data = birth, bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead*blength*babysex)
+
+all_baby %>% 
+  tidy() %>% 
+  knitr::kable(digits = 3)
+
+```
+
+All variables and interactions between them have a significant effect on final baby weight except for the interaction between head circumference and baby length.
+
