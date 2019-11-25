@@ -48,20 +48,30 @@ Checked for missing data and appropriate variable types using `skimr::skim(birth
 
 ```{r}
 
-molly_model = lm(data = birth, bwt ~ smoken + ppbmi + momage + fincome)
+molly_model = lm(data = birth, bwt ~ smoken + ppbmi + momage + fincome + gaweeks)
 
-
+molly_model %>% 
+  tidy() %>% 
+  knitr::kable(digits = 3)
 
 ```
 
-Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.
+The `molly_model` incorporates variables I expected to increase baby weight (`ppbmi`, `momage` - due to risk of gestational diabetes), as well as variables I expected to decrease baby weight (`smoken`, and `gaweeks` to account for prematurity). I also included `fincome` to investigate potential effects of healthcare access. The summary table indicates all of these variables have a signficant linear relationship with baby weight.
 
-- smoking --> small, obese - diabetes --> large baby
-- Need to account for malformations -- maybe exclude that data.
-- How to account for gestational age?
-- does mother's height or bmi have an effect?
-- parity could have an effect - smaller 1st babies versus later?
-- how to account for previous number of low birth weight or small for gestational age babies?
+```{r}
+birth %>% 
+  add_predictions(molly_model) %>% 
+  add_residuals(molly_model) %>% 
+  ggplot(aes(x = pred, y = resid)) + 
+  geom_point() +
+  theme_bw() +
+  ggtitle("Residuals vs Fitted Values for Baby Weight Linear Model") +
+  xlab("Predicted Value") +
+  ylab("Residual")
+
+```
+
+The plot suggests a linear relationship between the variables and baby weight. However there is possible heteroskedasticity, as baby weight may diverge more from predicted values at low baby weights.
 
 ## Comparison of model to provided models
 
@@ -79,9 +89,10 @@ basic_baby %>%
 
 ```
 
-Both baby length and gestational age have a significant rela on baby weight that is significant. 
+The `basic_baby` model suggests both baby length and gestational age have effects on baby weight that are significant. 
 
 ```{r}
+
 all_baby = lm(data = birth, bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead*blength*babysex)
 
 all_baby %>% 
@@ -90,5 +101,53 @@ all_baby %>%
 
 ```
 
-All variables and interactions between them have a significant effect on final baby weight except for the interaction between head circumference and baby length.
+In the `all_baby` lm model, all variables and interactions between them have a significant effect on final baby weight except for the interaction between head circumference and baby length.
+
+Now comparing `all_baby` and `basic_baby` to `molly_model` in terms of cross-validated prediction error:
+
+```{r}
+cv_df = crossv_mc(birth, 100)
+
+cv_df =
+  cv_df %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
+
+cv_df = 
+  cv_df %>% 
+  mutate(molly = map(train, ~molly_model),
+         basic = map(train, ~basic_baby),
+         all = map(train, ~all_baby)) %>% 
+  mutate(rmse_molly = map2_dbl(molly, 
+                               test, 
+                               ~rmse(model = .x, data = .y)),
+         rmse_basic = map2_dbl(basic, 
+                               test, 
+                               ~rmse(model = .x, data = .y)),
+         rmse_all = map2_dbl(all, 
+                             test, 
+                             ~rmse(model = .x, data = .y)))
+
+
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(everything(), 
+               names_to = "model", 
+               values_to = "rmse", 
+               names_prefix = "rmse_") %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_violin() +
+  theme_bw() +
+  ggtitle("Comparison of Linear Models in Predicting Birth Weight")
+
+```
+
+From the plot it is apparent that the model incorporating the most baby traits and interaction of those traits is the best model for predicting baby weight. The `molly_model` suffers likely because it primarily uses characteristics of the mother to predict the weight of the baby.
+
+# Problem 2
+
+
+
 
