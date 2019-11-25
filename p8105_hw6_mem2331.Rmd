@@ -12,6 +12,8 @@ library(tidyverse)
 library(modelr)
 library(broom)
 
+set.seed(1)
+
 ```
 
 # Problem 1
@@ -66,18 +68,19 @@ birth %>%
   geom_point() +
   theme_bw() +
   ggtitle("Residuals vs Fitted Values for Baby Weight Linear Model") +
-  xlab("Predicted Value") +
+  xlab("Predicted Baby Weight") +
   ylab("Residual")
 
 ```
 
-The plot suggests a linear relationship between the variables and baby weight. However there is possible heteroskedasticity, as baby weight may diverge more from predicted values at low baby weights.
+The residuals are evenly centered around 0, suggesting a linear relationship between the variables and baby weight. However there is possible heteroskedasticity, as baby weight may diverge more from predicted values at low baby weights.
 
 ## Comparison of model to provided models
 
 Create models to predict birthweight:
-1. `basic_baby` - length at birth and GA as predictors
-2. `all_baby` - head circumference, length, sex, and all interactions
+
+  1. `basic_baby` - length at birth and GA as predictors
+  2. `all_baby` - head circumference, length, sex, and all interactions of these variables
 
 ```{r}
 
@@ -93,7 +96,7 @@ The `basic_baby` model suggests both baby length and gestational age have effect
 
 ```{r}
 
-all_baby = lm(data = birth, bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead*blength*babysex)
+all_baby = lm(data = birth, bwt ~ bhead*blength*babysex)
 
 all_baby %>% 
   tidy() %>% 
@@ -103,7 +106,7 @@ all_baby %>%
 
 In the `all_baby` lm model, all variables and interactions between them have a significant effect on final baby weight except for the interaction between head circumference and baby length.
 
-Now comparing `all_baby` and `basic_baby` to `molly_model` in terms of cross-validated prediction error:
+Now comparing `all_baby` and `basic_baby` to `molly_model` in terms of cross-validated prediction error: (chose 100 because that's what we did in class).
 
 ```{r}
 cv_df = crossv_mc(birth, 100)
@@ -144,10 +147,89 @@ cv_df %>%
 
 ```
 
-From the plot it is apparent that the model incorporating the most baby traits and interaction of those traits is the best model for predicting baby weight. The `molly_model` suffers likely because it primarily uses characteristics of the mother to predict the weight of the baby.
+From the plot it is apparent that the model incorporating the most baby traits and interaction of those traits is the best model for predicting baby weight (the `all_baby` model). The `molly_model` suffers likely because it primarily uses characteristics of the mother to predict the weight of the baby.
 
 # Problem 2
 
+Load and tidy the data:
 
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
 
+## Linear model applied to bootstrapped samples
 
+Apply linear model with tmax as the response and tmin as the predictor to 5000 bootstrapped samples of `weather_df`:
+
+```{r}
+boot_straps = 
+  weather_df %>% 
+  modelr::bootstrap(n = 5000) %>% 
+  mutate(
+    models = map(strap, ~lm(tmax ~ tmin, data = .x)),
+    results = map(models, broom::tidy),
+    fit = map(models, broom::glance))
+```
+
+## Extraction and calculation of lm estimates
+
+Now to extract r squared and calculate the log of the product of beta hat 1 and beta hat 0 for each bootstrapped sample.
+
+```{r}
+
+estimates = 
+  boot_straps %>% 
+  unnest(c(results, fit), names_repair = "universal") %>% 
+  select(.id, term, estimate, r.squared) %>% 
+  pivot_wider(names_from = term, values_from = estimate) %>% 
+  janitor::clean_names() %>% 
+  rename(beta_1 = tmin,
+         beta_0 = intercept) %>% 
+  mutate(log_b1_b0 = log(beta_0*beta_1))
+  
+```
+
+## Distributions and 95% CIs of estimates
+
+### r_squared
+
+Plotting the distribution of `r_squared` values:
+
+```{r}
+estimates %>% 
+  ggplot(aes(x = r_squared)) +
+  geom_density() +
+  theme_bw() +
+  ggtitle("Distribution of r_squared Values Across 5000 Bootstrapped Samples")
+```
+
+The `r_squared` values are centered around ~0.912, which is very close to 1, indicating that the majority of the variance in tmax can be explained by the value of tmin. The distribution does appear to be skewed slightly to the left, which is likely a result of the values being so close to the maximum of 1 that the distribution cannot be exactly symmetric.
+
+The 95% confidence interval for the `r_squared` values is (`r round(quantile(pull(estimates, r_squared), probs = c(0.025,0.975)), digits = 3)`).
+
+### log(b0*b1)
+
+Plotting the distribution of the log of the product of the beta hat values shows:
+
+```{r}
+estimates %>% 
+  ggplot(aes(x = log_b1_b0)) +
+  geom_density() +
+  theme_bw() +
+  ggtitle("Distribution of log(b0*b1) Values Across 5000 Bootstrapped Samples") +
+  xlab("log(b0*b1)")
+```
+
+This distribution is approprimately normal and symmetric about ~2.01. 
+
+The 95% confidence interval for the `log_b1_b0` values is (`r round(quantile(pull(estimates, log_b1_b0), probs = c(0.025,0.975)), digits = 3)`).
